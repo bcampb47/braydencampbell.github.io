@@ -1,0 +1,406 @@
+library(plotly)
+library(forecast)
+library(shiny)
+library(quantmod)
+library(lubridate)
+library(ggplot2)
+library(shinyWidgets)
+library(shinydashboard)
+data("JohnsonJohnson")
+JohnsonJohnson <- data.frame(JohnsonJohnson)
+#Make sure to have instructions.rmd in the working directory!
+
+ui <- dashboardPage(
+    skin = "purple",
+    dashboardHeader(title = "Time Series Analysis"),
+    dashboardSidebar(
+        sidebarMenu(
+            menuItem("Data Configuration", tabName = "dataentry", icon = icon("cog", lib = "glyphicon")),
+            menuItem("Table", tabName = "datatable", icon = icon("list", lib = "glyphicon")),
+            menuItem("Seasonality Plots", tabName = "seasonality", icon = icon("leaf", lib = "glyphicon")),
+            menuItem("Decomposition Plot", tabName = "decomp", icon = icon("retweet", lib = "glyphicon")),
+            menuItem("Forecasting", tabName = "forecasting", icon = icon("forward", lib = "glyphicon")),
+            menuItem("Interpretation of Performance", tabName = "interpretation", icon = icon("search", lib = "glyphicon")),
+            menuItem("Instructions", tabName = "instructions", icon = icon("flag", lib = "glyphicon"))
+        )
+    ),
+    dashboardBody(
+        tabItems(
+                tabItem(tabName = "dataentry",
+                    fluidRow(
+                        box(width = '100%', background = "purple",
+                            title = "Time Series Plot",
+                            plotlyOutput("ts_plot")
+                        ),
+                    ),
+                    fluidRow(
+                        box(width = "100%",
+                                column(width = 6,
+                                    title = "File Uploading",
+                                    fileInput("file","Upload The File", width = '400px'),
+                                    h5("Upload a CSV File"),
+                                    tags$br(),
+                                    checkboxInput('header', 'Header', TRUE),
+                                    radioButtons('sep', 'Separator',
+                                        c(Comma=',',
+                                        Semicolon=';',
+                                        Tab='\t'),
+                                        ','),
+                                    radioButtons('quote', 'Quote',
+                                        c(None='',
+                                       'Double Quote'='"',
+                                       'Single Quote'="'"),
+                                        '"'),
+                                ),
+                                column(width = 6,
+                                    uiOutput('choice1'),
+                                    dateInput('start', 'Start of Time Series', value = ymd("1960 Jan 1"), format = "MM d, yyyy"),
+                                    autonumericInput('freq', 'Frequency of Data', minimumValue = 1, maximumValue = 365, value = 4, align = "left", decimalPlaces = 0),
+                                    textOutput("freq_val"),
+                                    #sliderInput('split', "Percentage of Data for Training", min = 50, max = 90, value = 85),
+                                    #selectInput('fcmodel', "Forecast Model to Use", choices = c("Seasonal Naive", "Random Walk with Drift"), selected = "Random Walk with Drift"),
+                                    #autonumericInput('pperiod', 'Number of Periods to Predict', value = 15, minimumValue = 1, maximumValue = 365, align = "left", decimalPlaces = 0)
+                                )
+                        )
+                    )
+                ),
+                tabItem(tabName = "datatable", 
+                    fluidRow(
+                        box(width = "100%",
+                            title = "Data Table",
+                            DT::dataTableOutput('tbl')
+                        )
+                    )
+                ),
+                tabItem(tabName = "seasonality",
+                    fluidRow(
+                        box(width = "100%",
+                            plotOutput("seasonplot")
+                        ),
+                        box(width = "100%",
+                            plotOutput("seasonplot2") 
+                        )
+                    )
+                ),
+                tabItem(tabName = "decomp",
+                        fluidRow(
+                            box(width = "100%",
+                                plotOutput("decompplot")
+                            ),
+                            box(width = "100%",
+                                selectInput("typeofdecomp", "Automatic or Manual Decomposition?", choices = c("Automatic", "Manual")),
+                                conditionalPanel(
+                                condition = "input.typeofdecomp == 'Manual'",
+                                sliderInput("s.window", "Enter seasonal window", min = 7, max = 19, value = 13, step = 2),
+                                sliderInput("t.window", "Enter trend-cycle window", min = 1, max = 19, value = 13, step = 2)
+                                ),
+                                conditionalPanel(
+                                condition = "input.typeofdecomp == 'Automatic'",
+                                switchInput("boxcox", "BoxCox Transformation?")
+                                )
+                            )
+                        )
+                ),
+                tabItem(tabName = "forecasting",
+                    fluidRow(
+                        box(width = "100%", background = "purple",
+                            plotOutput("fcplot")
+                        ),
+                    ),
+                    fluidRow(
+                        box(width = "100%",
+                            title = "Forecasting Parameters",
+                            setSliderColor(c("#605CA8","#605CA8","#605CA8","#605CA8","#605CA8","#605CA8","#605CA8","#605CA8","#605CA8","#605CA8","#605CA8"), c(1,2,3,4,5,6,7,8,9,10,11)),
+                            sliderInput('split', "Percentage of Data for Training", min = 50, max = 90, value = 85),
+                            selectInput('fcmodel', "Forecast Model to Use", choices = c("Seasonal Naive", "Random Walk with Drift", "ARIMA", "Automated Decomposition", "Manual Decomposition"), selected = "Random Walk with Drift"),
+                            autonumericInput('pperiod', 'Number of Periods to Predict', value = 15, minimumValue = 1, maximumValue = 1000, align = "left", decimalPlaces = 0),
+                            conditionalPanel(
+                                condition = "input.fcmodel == 'ARIMA'",
+                                column(width = 4,
+                                sliderInput("p", "Lag Order (p)", min = 0, max = 10, value = 0),
+                                sliderInput("d", "Degree of Differencing (d)", min = 0, max = 4, value = 0),
+                                sliderInput("q", "Moving Average Window Size (q)", min = 0, max = 4, value = 0),
+                                textOutput("arimatip")
+                                ),
+                                column(width = 4, offset = 4,
+                                sliderInput("P", "Seasonal Autoregressive Order (P)", min = 0, max = 1, value = 0, step = 1),
+                                sliderInput("D", "Seasonal Difference Order (D)", min = 0, max = 1, value = 0, step = 1),
+                                sliderInput("Q", "Seasonal Moving Average Order (Q)", min = 0, max = 1, value = 0, step = 1),
+                                textOutput("arimaseasonaltip")
+                                )
+                            ),
+                            conditionalPanel(
+                                condition = "input.fcmodel == 'Automated Decomposition'",
+                                selectInput("method", "Choose Decomposition Forecasting Method", choices = c("ets", "arima", "naive", "rwdrift"), selected = "ets")
+                            ),
+                            conditionalPanel(
+                                condition = "input.fcmodel == 'Manual Decomposition'",
+                                selectInput("method2", "Choose Decomposition Forecasting Method", choices = c("ets", "arima", "naive", "rwdrift"), selected = "ets"),
+                                sliderInput("s.window2", "Enter seasonal window", min = 7, max = 101, value = 13, step = 2),
+                                sliderInput("t.window2", "Enter trend-cycle window", min = 1, max = 101, value = 13, step = 2),
+                                switchInput("robust", "Use robust fitting?")
+                            )
+                        )
+                    )
+                ),
+                tabItem(tabName = "interpretation",
+                    fluidRow(
+                        box(width = "100%", background = "purple",
+                            plotOutput("accuracyplot")
+                        )
+                    ),
+                    fluidRow(
+                        box(width = "100%",
+                            DT::dataTableOutput("accuracy")
+                        )
+                    ),
+                    fluidRow(
+                        box(width = "100%",
+                            textOutput("interpretation")
+                        )
+                    )
+                ),
+                tabItem(tabName = "instructions",
+                            fluidRow(
+                                box(width = "100%",
+                                    includeMarkdown("Instructions.rmd")
+                                )
+                            )
+                )
+            )
+    )
+)
+
+
+server <- function(input, output, session) {
+    data <- reactive({ 
+        if(is.null(input$file)){df <- JohnsonJohnson}else{
+            req(input$file)
+            inFile <- input$file 
+            df <- read.csv(inFile$datapath, header = input$header, sep = input$sep,
+                           quote = input$quote)
+            
+            nums <- unlist(lapply(df, is.numeric))
+            df <- df[]#change to [,num] if you just want numeric
+        }
+        return(df)
+    })
+    
+    output$choice1 = renderUI({
+        file_to_read <- input$file
+        selectInput('choice1', "Vector", names(data()), selected = names(data())[ncol(data())])
+    })
+    
+    
+    output$tbl = DT::renderDataTable({
+        DT::datatable(data()[input$choice1], options = list(lengthChange = FALSE))
+    })
+    
+    tsdata <- reactive({
+        freqfun <- ceiling((yday(input$start)/365)*input$freq)
+        timeseries <- ts(data()[,input$choice1], start = c(year(input$start), freqfun), frequency = input$freq)
+        return(timeseries)
+    })
+    
+    output$ts_plot <- renderPlotly({
+        ggplotly(autoplot(tsdata()) + ylab(input$choice1))
+    })
+    
+    output$arimatip <- renderText({
+        if(input$fcmodel == "ARIMA"){
+            train <- head(tsdata()[], round(length(tsdata())*(input$split/100)))
+            h <- length(tsdata()) - length(train)
+            test <- tail(tsdata(), h)
+            AArima <- auto.arima(train)
+            FC <- forecast(AArima, h = input$pperiod)
+            p <- FC$model$arma[1]
+            d <- FC$model$arma[6]
+            q <- FC$model$arma[2]
+            sprintf("Suggested pdq for trend component: %d, %d, and %d.",
+                    round(p, digits = 1),
+                    round(d, digits = 1),
+                    round(q, digits = 1))
+        }
+    })
+    
+    output$arimaseasonaltip <- renderText({
+        if(input$fcmodel == "ARIMA"){
+            train <- head(tsdata()[], round(length(tsdata())*(input$split/100)))
+            h <- length(tsdata()) - length(train)
+            test <- tail(tsdata(), h)
+            AArima <- auto.arima(train)
+            FC <- forecast(AArima, h = input$pperiod)
+            P <- FC$model$arma[3]
+            D <- FC$model$arma[7]
+            Q <- FC$model$arma[4]
+            sprintf("Suggested PDQ for seasonal component: %d, %d, and %d.",
+                    round(P, digits = 1),
+                    round(D, digits = 1),
+                    round(Q, digits = 1))
+        }
+    })
+    
+    output$fcplot <- renderPlot({
+        train <- head(tsdata()[], round(length(tsdata())*(input$split/100)))
+        h <- length(tsdata()) - length(train)
+        test <- tail(tsdata(), h)
+        if(input$fcmodel == "Random Walk with Drift"){
+            FC <- rwf(train, h = input$pperiod, drift = TRUE)
+        }
+        if(input$fcmodel == "Seasonal Naive") {
+            FC <- snaive(train, h = input$pperiod)   
+        }
+        if(input$fcmodel == "ARIMA"){
+            Arima <- Arima(train, order = c(input$p, input$d, input$q), seasonal = c(input$P, input$D, input$Q), method = "ML")
+            FC <- forecast(Arima, h = input$pperiod)
+        }
+        if(input$fcmodel == "Automated Decomposition"){
+            FC <- forecast(mstl(train), method = input$method, h = input$pperiod)
+        }
+        if(input$fcmodel == "Manual Decomposition"){
+            FC <- forecast(stl(train, s.window = input$s.window2, t.window = input$t.window2, robust = input$robust), method = input$method2, h = input$pperiod)
+        }
+        autoplot(FC)+autolayer(test)
+    })
+    
+    output$seasonplot <- renderPlot({
+        ggsubseriesplot(tsdata())
+    })
+    
+    output$seasonplot2 <- renderPlot({
+        ggseasonplot(tsdata(), polar = TRUE)
+    })
+    
+    output$decompplot <- renderPlot({
+        if(input$typeofdecomp == "Manual"){
+            autoplot(stl(tsdata(), s.window = input$s.window, t.window = input$t.window))
+        } else {
+            if(input$boxcox){BC <- "auto"} else {BC <- NULL}
+            autoplot(mstl(tsdata(), lambda = BC))
+        }
+        
+    })
+    
+    output$accuracy <- DT::renderDataTable({
+        train <- head(tsdata()[], round(length(tsdata())*(input$split/100)))
+        h <- length(tsdata()) - length(train)
+        test <- tail(tsdata(), h)
+        if(input$fcmodel == "Random Walk with Drift"){
+            FC <- rwf(train, h = input$pperiod, drift = TRUE)
+        }
+        if(input$fcmodel == "Seasonal Naive") {
+            FC <- snaive(train, h = input$pperiod)   
+        }
+        if(input$fcmodel == "ARIMA"){
+            Arima <- Arima(train, order = c(input$p, input$d, input$q), seasonal = c(input$P, input$D, input$Q), method = "ML")
+            FC <- forecast(Arima, h = input$pperiod)
+        }
+        if(input$fcmodel == "Automated Decomposition"){
+            FC <- forecast(mstl(train), method = input$method, h = input$pperiod)
+        }
+        if(input$fcmodel == "Manual Decomposition"){
+            FC <- forecast(stl(train, s.window = input$s.window2, t.window = input$t.window2, robust = input$robust), method = input$method2, h = input$pperiod)
+        }
+        
+        DT::datatable(round(forecast::accuracy(FC, test), 4))
+    })
+    
+    output$accuracyplot <- renderPlot({
+        train <- head(tsdata()[], round(length(tsdata())*(input$split/100)))
+        h <- length(tsdata()) - length(train)
+        test <- tail(tsdata(), h)
+        if(input$fcmodel == "Random Walk with Drift"){
+            FC <- rwf(train, h = input$pperiod, drift = TRUE)
+        }
+        if(input$fcmodel == "Seasonal Naive") {
+            FC <- snaive(train, h = input$pperiod)   
+        }
+        if(input$fcmodel == "ARIMA"){
+            Arima <- Arima(train, order = c(input$p, input$d, input$q), seasonal = c(input$P, input$D, input$Q), method = "ML")
+            FC <- forecast(Arima, h = input$pperiod)
+        }
+        if(input$fcmodel == "Automated Decomposition"){
+            FC <- forecast(mstl(train), method = input$method, h = input$pperiod)
+        }
+        if(input$fcmodel == "Manual Decomposition"){
+            FC <- forecast(stl(train, s.window = input$s.window2, t.window = input$t.window2, robust = input$robust), method = input$method2, h = input$pperiod)
+        }
+        checkresiduals(FC)
+        
+    })
+    
+    
+    
+    output$freq_val <- renderText({
+        
+        
+        validate(
+            
+            need(input$freq > 0 & input$freq %% 1 == 0,
+                 "Warning: This is not a valid frequency. Please ensure it is a positive whole number."),
+            need(input$freq*2 < length(tsdata()),
+                 "Warning: Seasonality Plots will not function correctly with this frequency due to the length of your data. Please lower the frequency.")
+        )
+    })
+    
+    #(length(tsdata()) / input$freq) > 2
+    output$interpretation <- renderText({
+        train <- head(tsdata()[], round(length(tsdata())*(input$split/100)))
+        h <- length(tsdata()) - length(train)
+        test <- tail(tsdata(), h)
+        if(input$fcmodel == "Random Walk with Drift"){
+            FC <- rwf(train, h = input$pperiod, drift = TRUE)
+        }
+        if(input$fcmodel == "Seasonal Naive") {
+            FC <- snaive(train, h = input$pperiod)   
+        }
+        if(input$fcmodel == "ARIMA"){
+            Arima <- Arima(train, order = c(input$p, input$d, input$q), seasonal = c(input$P, input$D, input$Q), method = "ML")
+            FC <- forecast(Arima, h = input$pperiod)
+        }
+        if(input$fcmodel == "Automated Decomposition"){
+            FC <- forecast(mstl(train), method = input$method, h = input$pperiod)
+        }
+        if(input$fcmodel == "Manual Decomposition"){
+            FC <- forecast(stl(train, s.window = input$s.window2, t.window = input$t.window2, robust = input$robust), method = input$method2, h = input$pperiod)
+        }
+        a <- forecast::accuracy(FC, test)
+        trainrmse <- a[1,2]
+        testrmsethres <- trainrmse * 1.10
+        testrmse <- a[2,2]
+        trainacf1 <- a[1,7]
+        testacf1 <- a[2,7]
+        theilsU <- a[2,8]
+        cr <- checkresiduals(FC)
+        pval <- cr[["p.value"]]
+        
+        theiltest <- if(theilsU >1){
+            "Since it is greater than 1, this means that this model is worse than guessing with the naive"
+        } else if (theilsU == 1) {
+            "Since it is equal to 1, this means the model is about as good at forecasting as guessing with the naive"
+        } else {
+            "Since it is less than 1, this means the model is better than just guessing with the naive"
+        }
+        
+        
+        sprintf("The RMSE of this model is %s for the training data and %s for the test data. This is how much the forecast typically misses the actual observed data by, and RMSE gives greater weight to outliers in the calculation. %s.
+                %s. The p-value for the Ljung-Box test is %s. %s. The Theil's U for this model is %s. %s.",
+                round(trainrmse, 4),
+                round(testrmse, 4),
+                "If these values are both high for the data set, this forecast model is probably underfitting",
+                ifelse(testrmse>testrmsethres, "Provided that the RMSE is not too high for the training set, since the test error is more than 10% greater than the training error it could actually indicate the opposite problem of overfitting", ifelse(testrmse<trainrmse, "Interestingly, this forecast actually does better on the new data than it does on the training data", "The difference between the training and test RMSE is currently at a sweet spot, meaning the forecast does roughly equally as well on both")),
+                formatC(pval, format = "e", digits = 2),
+                ifelse(pval < 0.05, "Since it is less than 0.05, this means that we have enough evidence to reject the null hypothesis that the residuals are independently distributed and are likely correlated","Since the p-value is greater than 0.05, we fail to reject the null hypothesis that the residuals are independently distributed"),
+                round(theilsU, 4),
+                theiltest)
+        
+        
+        
+    })
+
+    
+    
+}
+
+
+shinyApp(ui = ui, server = server)
