@@ -1,0 +1,266 @@
+library(shiny)
+library(shinyWidgets)
+library(quantmod)
+library(TTR)
+library(shinythemes)
+library(lubridate)
+library(plotly)
+library(ggplot2)
+library(scales)
+library(bslib)
+library(showtext)
+#Pulling Stock Ticker and Name Data from TTR Package
+AllSym <- stockSymbols()[,1]
+AllName <- stockSymbols()[,2]
+ui <- fluidPage(
+
+    # Application title
+    titlePanel("Passive vs. Active Investing"),
+    h5("by Abigail Cooper, Abbie Daniel, James Brown, and Brayden Campbell"),
+    # Sidebar Setup for Inputs
+    sidebarLayout(
+        sidebarPanel(
+            currencyInput("principal", 
+                         "Enter Initial Investment (in USD)",
+                         10000,
+                         format = "dollar"), hr(),
+            dateInput("buydate",
+                           "Choose your buy date:",
+                           min = mdy("January 1 1980"),
+                           max = Sys.Date(),
+                            value = mdy("January 6 2015"),
+                            daysofweekdisabled = c(0,6),
+                            format = "MM d, yyyy"),
+            dateInput("selldate",
+                           "Choose your sell date:",
+                           min = mdy("January 1 1980"),
+                           max = (as.Date(Sys.Date())-1),
+                            value = (as.Date(Sys.Date())-1),
+                            daysofweekdisabled = c(0,6),
+                            format = "MM d, yyyy"), br(), br(),
+            textOutput("date_val"),
+            selectizeInput("index",
+                           "Choose your index fund:",
+                           choices = c("SPY","QQQ","VTI","VUG","SCHA","VOO","IVV","VTSAX","SWTSX","VRTTX","WFIVX")), br(), br(),
+            selectizeInput("stock1", "Choose your first stock:",
+                           NULL),
+            selectizeInput("stock2", "Choose your second stock:",
+                           NULL),
+            selectizeInput("stock3", "Choose your third stock:",
+                           NULL), br(), br(),
+            tags$style(type = "text/css", 
+                       ".irs-grid-text:nth-child(n) {color: white}",
+                       ".irs-grid-pol:nth-of-type(n) {background:white}",
+                       ".irs-max:nth-child(n) {color: white}",
+                       ".irs-min:nth-child(n) {color: white}"),
+            sliderInput("Stock1Weight", "Enter the weight for the first stock:", min = 0, max = 100, value = 33),
+            sliderInput("Stock2Weight", "Enter the weight for the second stock:", min = 0, max = 100, value = 33),
+            tags$b(textOutput("Stock3Weight"))
+            #sliderInput("Stock3Weight", "Enter the portfolio weight for third stock:", min = 0, max = 100, value = 33)
+            
+
+            
+        ),
+
+        
+        mainPanel(
+            #Creating tabs in the main panel for the different stock graphs and comparisons
+            tabsetPanel(type = "tabs",
+                        tabPanel("Instructions",withMathJax(includeMarkdown("StockAppInstructions.rmd"))),
+                        tabPanel("Index Fund",
+                                 plotlyOutput("indexplot")),
+                        tabPanel("First Stock",
+                                 plotlyOutput("stock1plot")), 
+                        tabPanel("Second Stock",
+                                 plotlyOutput("stock2plot")),
+                        tabPanel("Third Stock",
+                                 plotlyOutput("stock3plot")),
+                        tabPanel("Portfolio Comparison",
+                                 plotlyOutput("PortPlot"), br(),
+                                 tags$b(textOutput("PortComparisonText")))
+        
+            )
+        )
+    ))
+         
+        
+
+# Define server logic required to draw a histogram
+server <- function(input, output, session) {
+    
+    #Updating Selectize Input to load choices server side
+    updateSelectizeInput(session, 'stock1', choices = AllSym, selected = "GME", server = TRUE)
+    updateSelectizeInput(session, 'stock2', choices = AllSym, selected = "AMC", server = TRUE)
+    updateSelectizeInput(session, 'stock3', choices = AllSym, selected = "NOK", server = TRUE)
+    
+    ###START OF DATE VALIDATION
+    output$date_val <- renderText({
+        # make sure end date later than start date
+        validate(
+            need(input$buydate < input$selldate,
+                 "Warning: Please ensure buy date entered is before the sell date. Plots will not function correctly.")
+        )
+    })
+    ###END OF DATE VALIDATION
+    
+    #Updating Stock 2 Weight Slider and resulting weight of stock 3
+    
+    observeEvent(input$Stock1Weight,  {
+        updateSliderInput(session = session, inputId = "Stock2Weight", max = (100-input$Stock1Weight) )
+    })
+    
+    output$Stock3Weight <- renderText({
+        Weight <- 100-(input$Stock1Weight+input$Stock2Weight)
+        sprintf("Third stock weight: %.2f%%", Weight)
+    })
+    
+    ##Rendering Individual Stock Graph Output
+    output$indexplot = renderPlotly({
+        data <- getSymbols(input$index, src = "yahoo", from = input$buydate, to = input$selldate, auto.assign = FALSE)
+        ggplotly(autoplot(data[,4]) 
+                 + ggtitle(as.character(AllName[which(AllSym == input$index)])) 
+                    + theme(plot.background = element_rect(fill = "#58595B"), 
+                      axis.text.x=element_text(colour="white"),
+                      axis.title.x = element_text(colour="white"),
+                      axis.text.y=element_text(colour="white"), 
+                      axis.title.y=element_text(colour="white"), 
+                      title = element_text(color="white")) 
+                    + geom_line(colour = "#00166e")
+                    + xlab("Time")  
+                    + ylab("Stock Value")
+                    + scale_y_continuous(labels = dollar_format(big.mark = ",", decimal.mark = "."))
+        )
+        
+    })
+    output$stock1plot = renderPlotly({
+        data <- getSymbols(input$stock1, src = "yahoo", from = input$buydate, to = input$selldate, auto.assign = FALSE)
+        ggplotly(autoplot(data[,4]) + ggtitle(as.character(AllName[which(AllSym == input$stock1)])) +
+            theme(plot.background = element_rect(fill = "#58595B"), axis.text.x=element_text(colour="white"),
+                  axis.title.x = element_text(colour="white"),axis.text.y=element_text(colour="white"), axis.title.y=element_text(colour="white"), title = element_text(color="white")) +
+                  geom_line(colour = "#FF8200")+xlab("Time") + ylab("Stock Value")+scale_y_continuous(labels = dollar_format(big.mark = ",", decimal.mark = "."))
+        )
+        
+    })
+    output$stock2plot = renderPlotly({
+        data <- getSymbols(input$stock2, src = "yahoo", from = input$buydate, to = input$selldate, auto.assign = FALSE)
+        ggplotly(autoplot(data[,4]) + ggtitle(as.character(AllName[which(AllSym == input$stock2)])) +
+            theme(plot.background = element_rect(fill = "#58595B"), axis.text.x=element_text(colour="white"),
+                  axis.title.x = element_text(colour="white"),axis.text.y=element_text(colour="white"), axis.title.y=element_text(colour="white"), title = element_text(color="white")) +
+                  geom_line(colour = "#FF8200")+ xlab("Time") + ylab("Stock Value")+scale_y_continuous(labels = dollar_format(big.mark = ",", decimal.mark = "."))
+        )
+        
+    })
+    output$stock3plot = renderPlotly({
+        data <- getSymbols(input$stock3, src = "yahoo", from = input$buydate, to = input$selldate, auto.assign = FALSE)
+        ggplotly(autoplot(data[,4]) + ggtitle(as.character(AllName[which(AllSym == input$stock3)])) +
+            theme(plot.background = element_rect(fill = "#58595B"), axis.text.x=element_text(colour="white"),
+                  axis.title.x = element_text(colour="white"),axis.text.y=element_text(colour="white"), axis.title.y=element_text(colour="white"), title = element_text(color="white")) +
+                  geom_line(colour = "#FF8200") + xlab("Time") + ylab("Stock Value")+scale_y_continuous(labels = dollar_format(big.mark = ",", decimal.mark = ".")+ geom_line(colour = "#FF8200"))     
+        )
+        
+    })
+    
+    #Portfolio Comparison Code
+    output$PortComparisonText <- renderText({
+        data <- getSymbols(input$index, src = "yahoo", from = (input$buydate), to = (input$selldate), auto.assign = FALSE)
+        PriceBuy <- as.numeric(data[1, 4])
+        NumSharesOwned <- as.numeric(input$principal)/PriceBuy
+        PriceSell <- as.numeric(data[nrow(data), 4])
+        MoneyMade <- (PriceSell*NumSharesOwned) - as.numeric(input$principal)
+        PortfolioStocks <- StockData()$PortValueStocks
+        MoneyMadeStocks <- PortfolioStocks[length(PortfolioStocks)]-input$principal
+        
+        sprintf("Had you invested $%s into %s on %s, you would have made $%s on %s. On the other hand, had you invested that same amount into %s, %s, and %s, you would have made $%s.", 
+                formatC(input$principal, big.mark = ",", digits = 2, format = "f"), 
+                input$index,
+                format(input$buydate, format = "%B %d, %Y"),
+                formatC(MoneyMade, big.mark = ",", digits = 2, format = "f"), 
+                format(input$selldate, format = "%B %d, %Y"),
+                input$stock1,
+                input$stock2,
+                input$stock3,
+                formatC(MoneyMadeStocks, big.mark = ",", digits = 2, format = "f"))
+                
+                
+    })
+    
+    #Creating Portfolio Values as Reactive Elements
+    
+    StockData <- reactive({
+    data <- getSymbols(input$index, src = "yahoo", from = (input$buydate), to = (input$selldate), auto.assign = FALSE)
+    
+    IndexPriceBuy <- as.numeric(data[1, 4])
+    IndexNumSharesOwned <- as.numeric(input$principal)/IndexPriceBuy
+    data$PortValueIndex <- IndexNumSharesOwned*data[,4]
+    
+    Stock1Data <- getSymbols(input$stock1, src = "yahoo", from = (input$buydate), to = (input$selldate), auto.assign = FALSE)
+    Stock1PriceBuy <- as.numeric(Stock1Data[1,4])
+    Stock1NumSharesOwned <- (as.numeric(input$principal)*(input$Stock1Weight/100))/Stock1PriceBuy
+    
+    
+    Stock2Data <- getSymbols(input$stock2, src = "yahoo", from = (input$buydate), to = (input$selldate), auto.assign = FALSE)
+    Stock2PriceBuy <- as.numeric(Stock2Data[1,4])
+    Stock2NumSharesOwned <- (as.numeric(input$principal)*(input$Stock2Weight/100))/Stock2PriceBuy
+    
+    
+    Stock3Data <- getSymbols(input$stock3, src = "yahoo", from = (input$buydate), to = (input$selldate), auto.assign = FALSE)
+    Stock3PriceBuy <- as.numeric(Stock3Data[1,4])
+    Stock3NumSharesOwned <- (as.numeric(input$principal)*((100-(input$Stock1Weight+input$Stock2Weight))/100)/Stock3PriceBuy)
+    
+    data$PortValueStocks <- (Stock1NumSharesOwned*Stock1Data[,4])+ (Stock2NumSharesOwned*Stock2Data[,4])+(Stock3NumSharesOwned*Stock3Data[,4])
+    
+    return(data)})
+    
+    #Plotting Index vs. Individual Stock Portfolio
+    
+    output$PortPlot <- renderPlotly({
+        ggplot(StockData(), aes(x=Index)) + 
+            geom_line(aes(y = PortValueIndex, color = "Index Portfolio")) +
+            geom_line(aes(y = PortValueStocks, color = "Stock Portfolio")) +
+            scale_colour_manual("", values = c("Index Portfolio" = "#00166e", "Stock Portfolio"="#FF8200"))+
+            theme(plot.background = element_rect(fill = "#58595B"), axis.text.x=element_text(colour="white"),
+                  axis.title.x = element_text(colour="white"),axis.text.y=element_text(colour="white"), axis.title.y=element_text(colour="white"), title = element_text(color="white")) +
+                    xlab("Time") + ylab("Portfolio Value")+scale_y_continuous(labels = dollar_format(big.mark = ",", decimal.mark = ".")) +
+                    ggtitle("Index Fund vs. Your Three Stock Portfolio")
+                                           
+        
+    })
+    
+    
+    
+    
+    
+    
+    #ATTEMPT AT DEPENDENT SLIDERS
+    # observeEvent(input$Stock1Weight,  {
+    #     if(input$Stock1Weight+input$Stock2Weight+input$Stock3Weight < 1){
+    #         updateSliderInput(session = session, inputId = "Stock2Weight", value = input$Stock2Weight-(input$Stock2Weight/(input$Stock2Weight + input$Stock3Weight))*(1-(input$Stock3Weight+input$Stock2Weight+input$Stock1Weight)) )
+    #         updateSliderInput(session = session, inputId = "Stock3Weight", value = input$Stock3Weight-(input$Stock3Weight/(input$Stock2Weight + input$Stock3Weight))*(1-(input$Stock3Weight+input$Stock2Weight+input$Stock1Weight)) )
+    #     } else {
+    #         updateSliderInput(session = session, inputId = "Stock2Weight", value = input$Stock2Weight+(input$Stock2Weight/(input$Stock2Weight + input$Stock3Weight))*(1-(input$Stock3Weight+input$Stock2Weight+input$Stock1Weight)) )
+    #         updateSliderInput(session = session, inputId = "Stock3Weight", value = input$Stock3Weight+(input$Stock3Weight/(input$Stock2Weight + input$Stock3Weight))*(1-(input$Stock3Weight+input$Stock2Weight+input$Stock1Weight)) )
+    #     }
+    # })
+    # observeEvent(input$Stock2Weight,  {
+    #     if(input$Stock1Weight+input$Stock2Weight+input$Stock3Weight < 1){
+    #         updateSliderInput(session = session, inputId = "Stock1Weight", value = input$Stock1Weight-(input$Stock1Weight/(input$Stock1Weight + input$Stock3Weight))*(1-(input$Stock3Weight+input$Stock2Weight+input$Stock1Weight)) )
+    #         updateSliderInput(session = session, inputId = "Stock3Weight", value = input$Stock3Weight-(input$Stock3Weight/(input$Stock1Weight + input$Stock3Weight))*(1-(input$Stock3Weight+input$Stock2Weight+input$Stock1Weight)) )
+    #     } else {
+    #         updateSliderInput(session = session, inputId = "Stock1Weight", value = input$Stock1Weight+(input$Stock1Weight/(input$Stock1Weight + input$Stock3Weight))*(1-(input$Stock3Weight+input$Stock2Weight+input$Stock1Weight)) )
+    #         updateSliderInput(session = session, inputId = "Stock3Weight", value = input$Stock3Weight+(input$Stock3Weight/(input$Stock1Weight + input$Stock3Weight))*(1-(input$Stock3Weight+input$Stock2Weight+input$Stock1Weight)) )
+    #     }
+    # })
+    # observeEvent(input$Stock3Weight,  {
+    #     if(input$Stock1Weight+input$Stock2Weight+input$Stock3Weight < 1){
+    #         updateSliderInput(session = session, inputId = "Stock1Weight", value = input$Stock1Weight-(input$Stock1Weight/(input$Stock1Weight + input$Stock2Weight))*(1-(input$Stock3Weight+input$Stock2Weight+input$Stock1Weight)) )
+    #         updateSliderInput(session = session, inputId = "Stock2Weight", value = input$Stock2Weight-(input$Stock2Weight/(input$Stock1Weight + input$Stock2Weight))*(1-(input$Stock3Weight+input$Stock2Weight+input$Stock1Weight)) )
+    #     } else {
+    #         updateSliderInput(session = session, inputId = "Stock1Weight", value = input$Stock1Weight+(input$Stock1Weight/(input$Stock1Weight + input$Stock2Weight))*(1-(input$Stock3Weight+input$Stock2Weight+input$Stock1Weight)) )
+    #         updateSliderInput(session = session, inputId = "Stock2Weight", value = input$Stock2Weight+(input$Stock2Weight/(input$Stock1Weight + input$Stock2Weight))*(1-(input$Stock3Weight+input$Stock2Weight+input$Stock1Weight)) )
+    #     }
+    #})
+
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
