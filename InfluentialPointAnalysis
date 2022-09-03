@@ -1,0 +1,210 @@
+library(plotly)
+
+# Start of Shiny App
+library(regclass)
+library(shiny)
+library(broom)
+ui <- bootstrapPage(
+    titlePanel("Influential Point Analysis"),
+    h5("by Abigail Cooper, Clifford Stallworth, and Brayden Campbell"),
+    sidebarLayout(
+        sidebarPanel(
+            fileInput("file","Upload The File"),
+            uiOutput('choice1'),
+            uiOutput('choice2'),
+            h5("Upload a CSV File"),
+            tags$br(),
+            checkboxInput('header', 'Header', TRUE),
+            radioButtons('sep', 'Separator',
+                         c(Comma=',',
+                           Semicolon=';',
+                           Tab='\t'),
+                         ','),
+            radioButtons('quote', 'Quote',
+                         c(None='',
+                           'Double Quote'='"',
+                           'Single Quote'="'"),
+                         '"')
+            
+        ),
+        
+        mainPanel(
+            # Add new tab here
+            tabsetPanel(type = "tabs",
+                        tabPanel("Instructions",withMathJax(includeMarkdown("Instructions.rmd"))), #Remember to create your instruction file
+                        tabPanel("Data", DT::dataTableOutput('tbl')), # Data as datatable
+                        tabPanel("Influence Plot", plotlyOutput("infplot"), hr(),
+                                 uiOutput("infpoints"), hr(),
+                                 DT::dataTableOutput("inftable"))
+            )
+        )
+    ))
+
+##I got this influence plot from : https://gist.github.com/DoktorMike/6278065
+##and modified it so that it would only label the influential points that the regular
+##influence_plot output provides
+plotInfluence <- function (model, fill=colors, 
+                           outline = "black", size=30) {
+  
+    require(ggplot2)
+    if(!inherits(model, "lm")) 
+        stop("You need to supply an lm object.")
+    df<-data.frame(Residual=rstudent(model), 
+                   Leverage=hatvalues(model), 
+                   Cooks=cooks.distance(model), 
+                   Observation=names(hatvalues(model)), 
+                   stringsAsFactors=FALSE)
+  
+    Vector <- as.vector(unlist(influence_plot(model)))
+    labels <- c()
+    for (i in 1:nrow(df)) {
+        if(i %in% Vector) labels <- append(labels,i)
+        else labels <- append(labels,"")
+    }
+    colors <- c()
+    for (i in 1:nrow(df)) {
+        if(i %in% Vector) colors <- append(colors, "red")
+        else colors <- append(colors,"black")
+    }
+    myxint<-c(2*mean(df$Leverage), 3*mean(df$Leverage))
+    inds<-intersect(which(abs(df$Residual) < 2), 
+                    which( df$Leverage < myxint[1]))
+    if(length(inds) > 0) df$Observation[inds]<-""
+    ggplot(df, aes_string(x='Leverage', y='Residual', 
+                          size='Cooks', label='labels'), 
+           legend=FALSE) +
+        geom_point(colour=colors, fill="white", shape=21) + 
+        scale_size_area(max_size=size) + 
+        theme_bw(base_size=16) + geom_text(size=4) +
+        geom_hline(yintercept=c(2,-2), linetype="dashed") + 
+        geom_vline(xintercept=myxint, linetype="dashed") + 
+        ylab("Studentized Residuals") + 
+        xlab("Leverage") + labs(size="Cook's distance")
+}
+
+# SERVER
+server <- function(input, output,session) {
+    
+    output$input_file <- renderTable({
+        file_to_read <- input$file
+        read.table(file_to_read$datapath)
+    })
+    
+    data <- reactive({ 
+        req(input$file)
+        inFile <- input$file 
+        df <- read.csv(inFile$datapath, header = input$header, sep = input$sep,
+                       quote = input$quote)
+        
+        nums <- unlist(lapply(df, is.numeric))
+        df <- df[,nums]#change to [,nums] if you just want numeric
+        updateSelectInput(session, inputId = 'xcol', label = 'X Variable',
+                          choices = names(df), selected = names(df))
+        updateSelectInput(session, inputId = 'ycol', label = 'Y Variable',
+                          choices = names(df), selected = names(df)[2])
+        
+        return(df)
+    })
+    
+    output$choice1 = renderUI({
+        file_to_read <- input$file
+        selectInput('choice1', "Y variable", names(data()))
+    })
+    
+    output$choice2 = renderUI({
+        file_to_read <- input$file
+        selectInput('choice2', 'X Variable', names(data()))
+    })
+    
+    
+    reactive({ 
+        req(input$file)
+        title <- names(data())
+        return(title)
+    })
+    
+    reactive({ 
+        req(input$file)
+        names(code) <- names(data())
+        return(code)
+    })
+    
+    reactive({ 
+        req(input$file)
+        title <- names(title())
+        return(title)
+    })
+    
+    df.subset2 <- reactive({if(1==1){
+        a <- subset(DF)
+        return(a)
+    }else{
+        a <- subset(DF)
+        return(a)
+    }
+    })
+    
+    df.subset <- df.subset2 
+
+    # Variable Selection
+    
+    x <- reactive({
+        data()[,input$choice2]
+    })
+    
+    y <- reactive({
+        data()[,input$choice1]
+    })
+    
+    z <- reactive({
+        data()[,input$choice1]
+    })
+    
+    # Data output
+    output$tbl = DT::renderDataTable({
+        DT::datatable(data(), options = list(lengthChange = FALSE))
+    })
+    output$infplot = renderPlotly({
+       ggplotly(plotInfluence(lm(y()~x())))
+    })
+    output$infpoints = renderUI({
+        M <- lm(y()~x())
+        
+        Vector <- as.vector(unlist(influence_plot(M)))
+        
+        if(length(Vector) > 0) {
+            
+            sprintf("There are %d influential points. The mean of %s is %.2f while the mean of %s is %.2f.", 
+                    length(Vector), 
+                    input$choice1, 
+                    mean(data()[,input$choice1]), 
+                    input$choice2,
+                    mean(data()[,input$choice2]))
+          
+            
+        } else {
+            
+            "There are no influential points."
+            
+        }
+    })
+    output$inftable = DT::renderDataTable({
+        M <- reactive({
+            form <- formula(paste(input$choice1,"~",input$choice2))
+            fit <- lm(form,data = data())
+        })
+        Vector <- as.vector(unlist(influence_plot(M())))
+        df <- data()[Vector, c(input$choice1, input$choice2)]
+        df$"Z-Score of X" <- round((df[,input$choice1]-mean(data()[,input$choice1]))/(sd(data()[,input$choice1])), digits = 2)
+        df$"Z-Score of Y" <- round((df[,input$choice2]-mean(data()[,input$choice2]))/(sd(data()[,input$choice2])), digits = 2)
+        df$"Cook's Distance" <- round(augment(M())[Vector,7], digits = 4)
+        df$"Leverage (Hat-Value)" <- round(augment(M())[Vector,5], digits = 4)
+        df$"Studentized Residual" <- round(augment(M())[Vector,8], digits = 4)
+        DT::datatable(df)
+        # DT::datatable(augment(M())[Vector,])
+    })
+}
+
+shinyApp(ui = ui, server = server)
+
+
