@@ -1,0 +1,225 @@
+from dash import Dash
+import dash_core_components as dcc
+import dash_html_components as html
+from dash.dependencies import Input, Output
+from pandas_datareader import data
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
+
+
+###########################
+       #DATA SETUP#
+###########################
+ufo = pd.read_csv("ufo_sighting_data.csv", 
+                  delimiter = ",", 
+                  low_memory = False,
+                  dtype={"length_of_encounter_seconds": "float", "latitude": "string"}) #Line 57096 the ` has to be removed from 0.5 to read in as a float
+ufo = ufo.dropna()
+ufo["latitude"] = pd.to_numeric(ufo["latitude"], errors="coerce")
+ufo["length_of_encounter_seconds"] = pd.to_numeric(ufo["length_of_encounter_seconds"], errors="coerce")
+ufo["length_of_encounter_minutes"] = ufo["length_of_encounter_seconds"]/60
+ufo["encounter"] = ((ufo["length_of_encounter_minutes"] <= 1)*1+
+                    ((ufo["length_of_encounter_minutes"] > 1)&(ufo["length_of_encounter_minutes"] <15))*2+
+                    ((ufo["length_of_encounter_minutes"] >= 15)&(ufo["length_of_encounter_minutes"] < 30))*3+
+                    ((ufo["length_of_encounter_minutes"] >= 30)&(ufo["length_of_encounter_minutes"] < 45))*4+
+                    ((ufo["length_of_encounter_minutes"] >= 45)&(ufo["length_of_encounter_minutes"] < 60))*5+
+                    (ufo["length_of_encounter_minutes"] >= 60)*6).map({1: "Less than a minute", 2: "1-15 Minutes", 3: "15-30 Minutes", 4: "30-45 Minutes", 5: "45-60 Minutes", 6: "Longer than an hour"})
+
+f=ufo.groupby('year',as_index=False)['length_of_encounter_minutes'].mean()
+ufo_group = ufo[(ufo.year == 1998)&(ufo.UFO_shape == "triangle")].sort_values(by = "length_of_encounter_minutes", ascending = False)
+ufo_group = ufo_group.dropna()
+#ufo_group = ufo_group.sort_values("STATE")
+
+my_layout = dict(
+        geo = dict(
+            scope = 'usa',
+            projection = dict(type='albers usa')),
+        title = 'UFO Sighting Locations in the U.S.')
+###################################
+        #FIGURE 1#
+###################################
+fig1={"data": [go.Pie(labels = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'], values = ufo_group["month"].value_counts())],
+      "layout":{'title':'What percentage of sightings for this year were in each month?'}}
+###################################
+        #FIGURE 2#
+###################################
+fig2= go.Figure(data=[go.Histogram(x=ufo_group['UFOshapenew'], marker = dict(color='#800000'))])
+fig2.update_layout(title = "Histogram of UFO Shapes Seen This Year World Wide")
+###################################
+        #FIGURE 3#
+###################################
+fig3=go.Figure(data=[go.Histogram(x=ufo_group['STATE'], marker = dict(color='#FF8200'))])
+fig3.update_layout(title = "Number of Encounters per State")
+###################################
+        #FIGURE 4#
+###################################
+fig4= go.Figure(data = [go.Scattergeo(locationmode = "USA-states",
+                        lon = ufo_group[ufo_group.encounter == "Less than a minute"].longitude, #Longitude
+                        lat = ufo_group[ufo_group.encounter == "Less than a minute"].latitude,  #Latitude
+                        text = ufo_group[ufo_group.encounter == "Less than a minute"]['STATE'],
+                        mode = 'markers',
+                        name="Medium Airports",
+                        marker = dict(size=2,
+                        color='green'))
+                        ], layout = my_layout)
+
+
+                    
+
+
+
+
+#_______________________________________________________________________
+
+
+###################################
+            #UI SECTION#
+###################################
+style2={'padding': '10px 10px', 'font-size': '16px', 'color':"blue"}
+
+
+my_app = Dash('my app')
+
+
+my_app.layout = html.Div(children=[
+    
+ html.H1('BAS476 Fall 21   Project'),
+ html.H2('By Ahoud Algargoush, Dean Edward Stetzel, and Brayden Campbell'),
+
+
+ # Input Box and/or Bitton and/or Dropdown box,  etc.....
+ html.Label('Start Year: '),
+ dcc.Input(value=1998, id='given_year', style = style2),
+ html.Br(),
+ html.Br(),
+ html.Label('Shape: '),
+ dcc.Dropdown(id="my_dropdown1",
+                                  options=[{'label': "All", "value":"All"}]+[{'label': reg, "value": reg} for reg in sorted(ufo.UFO_shape.unique())],
+                                  value="All", multi = True, style={'width':'50%'}),
+ html.Label('Length of Encounter (Only Applies to Map): '),
+ dcc.Dropdown(id="my_dropdown2",
+                                  options=[{'label': "All", "value":"All"}]+[{'label': reg, "value": reg} for reg in ufo["encounter"].unique()],
+                                  value="All", multi = True, style={'width':'50%'}),
+ html.Br(),
+ html.Button(id="my_button1", n_clicks=0, children="Increase Year by 1", style = style2),
+ html.Button(id="my_button2", n_clicks=0, children="Decrease Year by 1", style = style2),
+
+ html.Br(),
+ html.Div(id = "text",
+    children = dcc.Textarea(
+        placeholder='',
+        value='',
+        style={'width':'40%'}
+    )
+),
+
+
+ 
+html.Div(id = 'first_two_graphs',
+         children=[
+             # Container (Div) with figure1
+            html.Div(id = 'my_graph1',
+            children = dcc.Graph(figure =fig1),style={'width':'50%', 'display':'inline-block'}),
+             # Container (Div) with figure2
+            html.Div(id = 'my_graph2',
+            children = dcc.Graph(figure =fig2), style={'width':'50%', 'display':'inline-block'})
+                  ]),
+
+# second container with two plots
+html.Div(id = 'second_two_graphs',
+         children=[
+             # Container (Div) with figure3
+            html.Div(id = 'my_graph3',
+            children = dcc.Graph(figure =fig3),style={'width':'50%', 'display':'inline-block'}),
+             # Container (Div) with figure4
+            html.Div(id = 'my_graph4',
+            children = dcc.Graph(figure =fig4), style={'width':'50%', 'display':'inline-block'})
+                  ])
+ 
+])
+ 
+
+
+#__________________________________
+###################################
+      #CALLBACK AND FUNCTION#
+###################################
+@my_app.callback(
+    [Output(component_id='my_graph1', component_property='children'),
+     Output(component_id='my_graph2', component_property='children'),
+     Output(component_id='my_graph3', component_property='children'),
+     Output(component_id='my_graph4', component_property='children'),
+     Output(component_id='text', component_property='children')],
+     
+    [Input(component_id='given_year', component_property='value'),
+     Input(component_id='my_button1', component_property='n_clicks'),
+     Input(component_id='my_button2', component_property='n_clicks'),
+     Input(component_id='my_dropdown1', component_property='value'),
+     Input(component_id='my_dropdown2', component_property='value')])
+
+def update_graph(given_year, nc, nc2, shape, time):
+    given_year+=1*nc
+    given_year-=1*nc2
+    
+    if given_year> ufo.year.max(): given_year = ufo.year.max()
+    
+    if("All" not in shape):
+        ufo_group=ufo[(ufo.year==int(given_year))&(ufo.UFO_shape.isin(shape))].sort_values("STATE") 
+    else:
+        ufo_group=ufo[ufo.year==int(given_year)].sort_values("STATE")
+
+
+    if("All" not in time):
+        time = time
+    else:
+        time = ufo_group.encounter
+
+    if( ("All" not in shape) ):
+            lb = 'Current shape(s) is/are ' + "+".join(shape) + ' and the current year is ' + str(int(given_year))
+    else:
+        lb = 'All shapes are currently showing and the current year is ' + str(int(given_year))
+    
+    fig1={"data": [go.Pie(labels = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'], values = ufo_group["month"].value_counts())],
+      "layout":{'title':'How many UFOs were there per month?'}}
+    
+    fig2= go.Figure(data=[go.Histogram(x=ufo_group['UFOshapenew'], marker = dict(color='#800000'))])
+    fig2.update_layout(title = "Histogram of UFO Shapes Seen This Year World Wide")
+
+    fig3=go.Figure(data=[go.Histogram(x=ufo_group['STATE'], marker = dict(color='#FF8200'))])
+    fig3.update_layout(title = "Number of Encounters per State")
+
+    fig4= go.Figure(data = [go.Scattergeo(locationmode = "USA-states",
+
+                    lon = ufo_group[ufo_group.encounter.isin(time)].longitude, #Longitude
+                    lat = ufo_group[ufo_group.encounter.isin(time)].latitude,  #Latitude
+                    text = ufo_group[ufo_group.encounter.isin(time)]['STATE'],
+                    mode = 'markers',
+                    name="Medium Airports",
+                    marker = dict(size=2,
+                    color='green'
+                           ))
+
+
+                        ], layout = my_layout)
+    
+    
+    graph1 = dcc.Graph(figure = fig1)
+    graph2 = dcc.Graph(figure = fig2)
+    graph3 = dcc.Graph(figure = fig3)
+    graph4 = dcc.Graph(figure = fig4)
+    text = dcc.Textarea(
+            placeholder= lb,
+            value=lb ,
+            style={'width': '40%'}
+                )
+                
+    
+    return graph1, graph2, graph3, graph4, text
+#__________________________________
+
+      
+
+if __name__ == '__main__':
+    my_app.run_server(debug=True)
